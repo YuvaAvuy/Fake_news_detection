@@ -1,50 +1,57 @@
 import streamlit as st
 import joblib
+import requests
+from bs4 import BeautifulSoup
 from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
-from newspaper import Article
 
 # -------------------------------
-# Load ML models
+# Load classical ML models
 # -------------------------------
 model_pa = joblib.load("model_passive_aggressive.pkl")
 model_nb = joblib.load("model_multinb.pkl")
 vectorizer = joblib.load("tfidf_vectorizer.pkl")
 
-# Hugging Face Models
-bert_model = AutoModelForSequenceClassification.from_pretrained("omykhailiv/bert-fake-news-recognition")
-bert_tokenizer = AutoTokenizer.from_pretrained("omykhailiv/bert-fake-news-recognition")
-bert_pipeline = pipeline("text-classification", model=bert_model, tokenizer=bert_tokenizer)
+# -------------------------------
+# Load Hugging Face models
+# -------------------------------
+@st.cache_resource
+def load_bert():
+    model = AutoModelForSequenceClassification.from_pretrained("omykhailiv/bert-fake-news-recognition")
+    tokenizer = AutoTokenizer.from_pretrained("omykhailiv/bert-fake-news-recognition")
+    return pipeline("text-classification", model=model, tokenizer=tokenizer)
 
-t5_pipeline = pipeline("text2text-generation", model="google/flan-t5-base")
+@st.cache_resource
+def load_t5():
+    return pipeline("text2text-generation", model="google/flan-t5-base")
+
+bert_pipeline = load_bert()
+t5_pipeline = load_t5()
 
 # -------------------------------
-# Scraper
+# Scraper function (BeautifulSoup)
 # -------------------------------
 def scrape_url(url):
     try:
-        article = Article(url)
-        article.download()
-        article.parse()
-        return article.title + "\n\n" + article.text
-    except:
+        res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        title = soup.title.string if soup.title else ""
+        paragraphs = [p.get_text() for p in soup.find_all("p")]
+        text = " ".join(paragraphs)
+
+        return (title + "\n\n" + text)[:3000]  # limit length
+    except Exception:
         return None
 
 # -------------------------------
-# Prediction Function
+# Prediction function
 # -------------------------------
 def get_final_prediction(text):
-    # Passive Aggressive
-    vec = vectorizer.transform([text])
-    pa_pred = "REAL" if model_pa.predict(vec)[0] == 1 else "FAKE"
-
-    # Naive Bayes
-    nb_pred = "REAL" if model_nb.predict(vec)[0] == 1 else "FAKE"
-
-    # BERT
+    # BERT Prediction
     bert_res = bert_pipeline(text[:512])[0]
     bert_pred = "REAL" if "REAL" in bert_res['label'].upper() else "FAKE"
 
-    # FLAN-T5
+    # FLAN-T5 Prediction
     prompt = f"Classify this news as REAL or FAKE:\n\n{text}"
     t5_out = t5_pipeline(prompt, max_length=20)[0]['generated_text'].upper()
     if "REAL" in t5_out and "FAKE" not in t5_out:
@@ -54,12 +61,17 @@ def get_final_prediction(text):
     else:
         t5_pred = "UNSURE"
 
-    # Majority Voting
-    votes = [pa_pred, nb_pred, bert_pred, t5_pred]
+    # Classical Models
+    vec = vectorizer.transform([text])
+    pa_pred = "REAL" if model_pa.predict(vec)[0] == 1 else "FAKE"
+    nb_pred = "REAL" if model_nb.predict(vec)[0] == 1 else "FAKE"
+
+    # Voting
+    votes = [bert_pred, t5_pred, pa_pred, nb_pred]
     final = max(set(votes), key=votes.count)
 
-    # Tie-breaker with BERT
-    if votes.count(final) == 2 and "UNSURE" in votes:
+    # Tie → BERT priority
+    if votes.count("REAL") == votes.count("FAKE"):
         final = bert_pred
 
     return final
@@ -67,7 +79,7 @@ def get_final_prediction(text):
 # -------------------------------
 # Streamlit UI
 # -------------------------------
-st.title("📰 Fake News Detection App (All Models Combined)")
+st.title("📰 Fake News Detection App (DL + ML Combined)")
 
 choice = st.radio("Choose Input Type", ["Text", "URL"])
 
