@@ -1,58 +1,95 @@
 import streamlit as st
 import joblib
-import requests
+from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
+from newspaper import Article
 
-# Load models
+# -------------------------------
+# Load ML models
+# -------------------------------
 model_pa = joblib.load("model_passive_aggressive.pkl")
 model_nb = joblib.load("model_multinb.pkl")
 vectorizer = joblib.load("tfidf_vectorizer.pkl")
 
-# Gemini Function
-def ask_gemini(sample, pa_label, nb_label):
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-    headers = {
-        "Content-Type": "application/json",
-        "X-goog-api-key": "AIzaSyARNI1P2Lo7XTol9cjWS6p_TY_6oEt1Qaw"
-    }
-    prompt = f"""You are a fake news expert.
-News: "{sample}"
+# Hugging Face Models
+bert_model = AutoModelForSequenceClassification.from_pretrained("omykhailiv/bert-fake-news-recognition")
+bert_tokenizer = AutoTokenizer.from_pretrained("omykhailiv/bert-fake-news-recognition")
+bert_pipeline = pipeline("text-classification", model=bert_model, tokenizer=bert_tokenizer)
 
-PassiveAggressive says: {"REAL" if pa_label == 1 else "FAKE"}
-MultinomialNB says: {"REAL" if nb_label == 1 else "FAKE"}
+t5_pipeline = pipeline("text2text-generation", model="google/flan-t5-base")
 
-Using your world knowledge, decide: is this REAL or FAKE news? Just say REAL or FAKE."""
-    data = {
-        "contents": [
-            {
-                "parts": [{"text": prompt}]
-            }
-        ]
-    }
+# -------------------------------
+# Scraper
+# -------------------------------
+def scrape_url(url):
     try:
-        res = requests.post(url, headers=headers, json=data)
-        res.raise_for_status()
-        result = res.json()
-        text = result['candidates'][0]['content']['parts'][0]['text'].strip().upper()
-        if "REAL" in text and "FAKE" not in text:
-            return "🟢 REAL NEWS"
-        elif "FAKE" in text:
-            return "🔴 FAKE NEWS"
-        else:
-            return "⚠️ Gemini unsure"
+        article = Article(url)
+        article.download()
+        article.parse()
+        return article.title + "\n\n" + article.text
     except:
-        return "⚠️ Gemini failed"
+        return None
 
-# UI
-st.title("📰 Fake News Detection App")
-user_input = st.text_area("Enter a news headline or text")
+# -------------------------------
+# Prediction Function
+# -------------------------------
+def get_final_prediction(text):
+    # Passive Aggressive
+    vec = vectorizer.transform([text])
+    pa_pred = "REAL" if model_pa.predict(vec)[0] == 1 else "FAKE"
+
+    # Naive Bayes
+    nb_pred = "REAL" if model_nb.predict(vec)[0] == 1 else "FAKE"
+
+    # BERT
+    bert_res = bert_pipeline(text[:512])[0]
+    bert_pred = "REAL" if "REAL" in bert_res['label'].upper() else "FAKE"
+
+    # FLAN-T5
+    prompt = f"Classify this news as REAL or FAKE:\n\n{text}"
+    t5_out = t5_pipeline(prompt, max_length=20)[0]['generated_text'].upper()
+    if "REAL" in t5_out and "FAKE" not in t5_out:
+        t5_pred = "REAL"
+    elif "FAKE" in t5_out:
+        t5_pred = "FAKE"
+    else:
+        t5_pred = "UNSURE"
+
+    # Majority Voting
+    votes = [pa_pred, nb_pred, bert_pred, t5_pred]
+    final = max(set(votes), key=votes.count)
+
+    # Tie-breaker with BERT
+    if votes.count(final) == 2 and "UNSURE" in votes:
+        final = bert_pred
+
+    return final
+
+# -------------------------------
+# Streamlit UI
+# -------------------------------
+st.title("📰 Fake News Detection App (All Models Combined)")
+
+choice = st.radio("Choose Input Type", ["Text", "URL"])
+
+user_input = ""
+if choice == "Text":
+    user_input = st.text_area("Enter news text/headline")
+else:
+    url = st.text_input("Enter news article URL")
+    if url:
+        scraped = scrape_url(url)
+        if scraped:
+            st.text_area("Extracted Article", scraped, height=200)
+            user_input = scraped
+        else:
+            st.warning("⚠️ Could not scrape the URL.")
 
 if st.button("Analyze"):
-    if user_input.strip() == "":
-        st.warning("Please enter some news text.")
+    if not user_input.strip():
+        st.warning("Please enter some news text or URL.")
     else:
-        vec = vectorizer.transform([user_input])
-        pa_pred = model_pa.predict(vec)[0]
-        nb_pred = model_nb.predict(vec)[0]
-        result = ask_gemini(user_input, pa_pred, nb_pred)
-        st.subheader("Final Verdict:")
-        st.success(result)
+        final_result = get_final_prediction(user_input)
+        if final_result == "REAL":
+            st.success("🟢 FINAL VERDICT: REAL NEWS")
+        else:
+            st.error("🔴 FINAL VERDICT: FAKE NEWS")
