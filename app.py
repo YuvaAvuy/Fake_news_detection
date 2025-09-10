@@ -17,6 +17,10 @@ def load_bert_model():
 def load_roberta_model():
     return pipeline("zero-shot-classification", model="roberta-large-mnli")
 
+# Load models once
+bert_pipeline = load_bert_model()
+roberta_pipeline = load_roberta_model()
+
 # ==============================
 # Text Cleaning
 # ==============================
@@ -50,10 +54,42 @@ def scrape_url(url):
 # Trusted Sources (200+)
 # ==============================
 trusted_sources = [
-    # Example: extend to 200+ sources (national, international, government)
-    "thehindu.com","timesofindia.com","bbc.com","cnn.com",".gov.in","un.org","nasa.gov",
-    "who.int",".gov",".europa.eu","pib.gov.in","isro.gov.in","pmindia.gov.in","mod.gov.in",
-    # ... add all 200+ sources as in previous full code
+    # Indian News
+    "thehindu.com","timesofindia.com","hindustantimes.com","ndtv.com","indiatoday.in",
+    "indianexpress.com","livemint.com","business-standard.com","deccanherald.com",
+    "telegraphindia.com","mid-day.com","dnaindia.com","scroll.in","firstpost.com",
+    "theprint.in","news18.com","oneindia.com","outlookindia.com","zeenews.india.com",
+    "cnnnews18.com","economictimes.indiatimes.com","financialexpress.com","siasat.com",
+    "newindianexpress.com","tribuneindia.com","asianage.com","bharattimes.com",
+    "freepressjournal.in","morningindia.in","abplive.com","newsable.asianetnews.com",
+    # International News
+    "bbc.com","cnn.com","reuters.com","apnews.com","aljazeera.com","theguardian.com",
+    "nytimes.com","washingtonpost.com","bloomberg.com","dw.com","foxnews.com","cbsnews.com",
+    "nbcnews.com","abcnews.go.com","sky.com","france24.com","rt.com","sputniknews.com",
+    "npr.org","telegraph.co.uk","thetimes.co.uk","independent.co.uk","globaltimes.cn",
+    "china.org.cn","cbc.ca","abc.net.au","smh.com.au","japantimes.co.jp","lemonde.fr",
+    "elpais.com","derstandard.at","spiegel.de","tagesschau.de","asiatimes.com",
+    "straitstimes.com","thaiworldview.com","thejakartapost.com","thestandard.com.hk",
+    "sbs.com.au","hawaiinewsnow.com","theglobeandmail.com","irishnews.com","latimes.com",
+    "chicagotribune.com","startribune.com","nydailynews.com","financialtimes.com",
+    "forbes.com","thehill.com","vox.com","buzzfeednews.com","huffpost.com","usatoday.com",
+    "teleSURenglish.net","euronews.com","al-monitor.com","news.com.au","cnbc.com",
+    "barrons.com","time.com","foreignpolicy.com","economist.com","foreignaffairs.com",
+    "dailytelegraph.com.au","smh.com.au","thesun.co.uk","dailymail.co.uk",
+    # Indian Government
+    ".gov.in","pib.gov.in","isro.gov.in","pmindia.gov.in","mod.gov.in","mha.gov.in",
+    "rbi.org.in","sebi.gov.in","nic.in","mohfw.gov.in","moef.gov.in","meity.gov.in",
+    "railway.gov.in","dgca.gov.in","drdo.gov.in","indianrailways.gov.in","education.gov.in",
+    "scienceandtech.gov.in","urbanindia.nic.in","financialservices.gov.in",
+    "commerce.gov.in","sportsauthorityofindia.nic.in","agriculture.gov.in","power.gov.in",
+    "parliamentofindia.nic.in","taxindia.gov.in","cbic.gov.in","epfindia.gov.in","defence.gov.in",
+    # International Government & UN/NGO
+    ".gov",".europa.eu","un.org","who.int","nasa.gov","esa.int","imf.org","worldbank.org",
+    "fao.org","wto.org","unicef.org","unhcr.org","redcross.org","cdc.gov","nih.gov","usa.gov",
+    "canada.ca","gov.uk","australia.gov.au","japan.go.jp","ec.europa.eu","consilium.europa.eu",
+    "ecb.europa.eu","unep.org","ilo.org","ohchr.org","unodc.org","unwomen.org",
+    "unfpa.org","unesco.org","wmo.int","ifrc.org","nato.int","oecd.org","europarl.europa.eu",
+    "unido.org","wfp.org"
 ]
 
 def is_trusted(url):
@@ -68,10 +104,6 @@ def predict_text_ensemble(text, url=""):
 
     if url and is_trusted(url):
         return "REAL"
-
-    # Load models
-    bert_pipeline = load_bert_model()
-    roberta_pipeline = load_roberta_model()
 
     # BERT prediction
     bert_res = bert_pipeline(text[:512])[0]['label']
@@ -101,7 +133,7 @@ page_url = ""
 
 if input_type == "Text":
     user_input = st.text_area("Enter news text here", height=200)
-else:
+elif input_type == "URL":
     page_url = st.text_input("Enter news article URL")
     if page_url:
         scraped = scrape_url(page_url)
