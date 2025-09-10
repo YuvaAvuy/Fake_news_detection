@@ -12,7 +12,7 @@ model_nb = joblib.load("model_multinb.pkl")
 vectorizer = joblib.load("tfidf_vectorizer.pkl")
 
 # -------------------------------
-# Load Hugging Face models
+# Load Hugging Face models (cached for speed)
 # -------------------------------
 @st.cache_resource
 def load_bert():
@@ -28,7 +28,7 @@ bert_pipeline = load_bert()
 t5_pipeline = load_t5()
 
 # -------------------------------
-# Scraper function (BeautifulSoup)
+# Improved Scraper function
 # -------------------------------
 def scrape_url(url):
     try:
@@ -36,10 +36,21 @@ def scrape_url(url):
         soup = BeautifulSoup(res.text, "html.parser")
 
         title = soup.title.string if soup.title else ""
-        paragraphs = [p.get_text() for p in soup.find_all("p")]
+
+        # Extract only meaningful <p> content
+        paragraphs = []
+        for p in soup.find_all("p"):
+            text = p.get_text().strip()
+            if len(text.split()) > 5:  # ignore short junk like dates/menus
+                paragraphs.append(text)
+
         text = " ".join(paragraphs)
 
-        return (title + "\n\n" + text)[:3000]  # limit length
+        # Fallback if no good paragraphs found
+        if not text:
+            text = soup.get_text()
+
+        return (title + "\n\n" + text)[:3000]  # limit to 3000 chars
     except Exception:
         return None
 
@@ -101,7 +112,13 @@ if st.button("Analyze"):
         st.warning("Please enter some news text or URL.")
     else:
         final_result = get_final_prediction(user_input)
+
+        st.subheader("Final Verdict:")
         if final_result == "REAL":
-            st.success("🟢 FINAL VERDICT: REAL NEWS")
+            st.success("🟢 REAL NEWS")
         else:
-            st.error("🔴 FINAL VERDICT: FAKE NEWS")
+            st.error("🔴 FAKE NEWS")
+
+        # Debug: show what models saw
+        with st.expander("🔎 Debug: Show Extracted Text"):
+            st.write(user_input)
