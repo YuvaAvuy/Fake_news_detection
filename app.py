@@ -1,32 +1,29 @@
 import streamlit as st
-import joblib
 import requests
 import re
 from bs4 import BeautifulSoup
 from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 
 # ==============================
-# Load classical ML models
-# ==============================
-model_pa = joblib.load("model_passive_aggressive.pkl")
-model_nb = joblib.load("model_multinb.pkl")
-vectorizer = joblib.load("tfidf_vectorizer.pkl")
-
-# ==============================
-# Load Hugging Face models
+# Load DL Models
 # ==============================
 @st.cache_resource
-def load_bert():
+def load_bert_model():
     model = AutoModelForSequenceClassification.from_pretrained("omykhailiv/bert-fake-news-recognition")
     tokenizer = AutoTokenizer.from_pretrained("omykhailiv/bert-fake-news-recognition")
     return pipeline("text-classification", model=model, tokenizer=tokenizer)
 
 @st.cache_resource
-def load_t5():
-    return pipeline("text2text-generation", model="google/flan-t5-base")
+def load_bart_model():
+    return pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
 
-bert_pipeline = load_bert()
-t5_pipeline = load_t5()
+@st.cache_resource
+def load_t5_model():
+    return pipeline("text2text-generation", model="google/flan-t5-large")
+
+bert_pipeline = load_bert_model()
+bart_pipeline = load_bart_model()
+t5_pipeline = load_t5_model()
 
 # ==============================
 # Text Cleaning
@@ -38,149 +35,135 @@ def clean_text(text):
     return text.strip()
 
 # ==============================
-# Scraper
+# Web Scraping
 # ==============================
 def scrape_url(url):
     try:
         res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
         soup = BeautifulSoup(res.text, "html.parser")
-
         title = soup.title.string if soup.title else ""
-
-        article_div = soup.find("article")
-        if not article_div:
-            article_div = soup.find("div", {"class": "articlebodycontent"})
-        if not article_div:
-            article_div = soup.find("div", {"id": "content-body"})
-
+        article_div = soup.find("article") or soup.find("div", {"class": "articlebodycontent"}) or soup.find("div", {"id": "content-body"})
         if article_div:
-            chunks = [
-                elem.get_text().strip()
-                for elem in article_div.find_all(["p", "li", "div"])
-                if len(elem.get_text().split()) > 5
-            ]
+            chunks = [elem.get_text().strip() for elem in article_div.find_all(["p","li","div"]) if len(elem.get_text().split())>5]
         else:
-            chunks = [
-                p.get_text().strip()
-                for p in soup.find_all("p")
-                if len(p.get_text().split()) > 5
-            ]
-
+            chunks = [p.get_text().strip() for p in soup.find_all("p") if len(p.get_text().split())>5]
         text = " ".join(chunks)
         if not text:
             text = soup.get_text()
-
-        return clean_text((title + "\n\n" + text)[:3000])
-    except Exception:
+        return clean_text((title + "\n\n" + text)[:4000])
+    except:
         return None
 
 # ==============================
-# Trusted sources list
+# Trusted Sources 200+
 # ==============================
 trusted_sources = [
-    # Indian mainstream
-    "thehindu.com", "timesofindia.com", "hindustantimes.com", "ndtv.com", "indiatoday.in",
-    "indianexpress.com", "economictimes.indiatimes.com", "livemint.com", "business-standard.com",
-    "deccanherald.com", "telegraphindia.com", "mid-day.com", "dnaindia.com", "scroll.in",
-    "firstpost.com", "theprint.in", "news18.com", "oneindia.com", "outlookindia.com",
+    # Indian News (50+)
+    "thehindu.com","timesofindia.com","hindustantimes.com","ndtv.com","indiatoday.in",
+    "indianexpress.com","livemint.com","business-standard.com","deccanherald.com",
+    "telegraphindia.com","mid-day.com","dnaindia.com","scroll.in","firstpost.com",
+    "theprint.in","news18.com","oneindia.com","outlookindia.com","zeenews.india.com",
+    "cnnnews18.com","economictimes.indiatimes.com","financialexpress.com","siasat.com",
+    "newindianexpress.com","tribuneindia.com","asianage.com","bharattimes.com",
+    "freepressjournal.in","morningindia.in","abplive.com","newsable.asianetnews.com",
+    "indiaglitz.com","thelogicalindian.com","m.timesofindia.com","bharatnews.com",
+    "sundayguardianlive.com","telanganatoday.com","hyderabadnews.in","bangaloremirror.indiatimes.com",
+    "newsnation.in","thenewsminute.com","newslaundry.com","india.com","deccanchronicle.com",
+    "thehansindia.com","punemirror.com","chennailivenews.in","kashmirlife.net","jagran.com",
+    "navbharattimes.indiatimes.com","amarujala.com","dainikbhaskar.com","lokmat.com",
+    "maharashtratimes.com","eenadu.net","sakal.com","prahaar.in","varthabharati.in",
+    "samacharjagat.com","dailyhunt.in","uttarpradesh.org",
 
-    # International mainstream
-    "bbc.com", "cnn.com", "reuters.com", "apnews.com", "aljazeera.com", "theguardian.com",
-    "nytimes.com", "washingtonpost.com", "bloomberg.com", "dw.com", "foxnews.com", "cbsnews.com",
-    "nbcnews.com", "abcnews.go.com", "sky.com", "france24.com", "rt.com", "sputniknews.com", "npr.org",
+    # International News (50+)
+    "bbc.com","cnn.com","reuters.com","apnews.com","aljazeera.com","theguardian.com",
+    "nytimes.com","washingtonpost.com","bloomberg.com","dw.com","foxnews.com","cbsnews.com",
+    "nbcnews.com","abcnews.go.com","sky.com","france24.com","rt.com","sputniknews.com",
+    "npr.org","telegraph.co.uk","thetimes.co.uk","independent.co.uk","globaltimes.cn",
+    "china.org.cn","cbc.ca","abc.net.au","smh.com.au","japantimes.co.jp","lemonde.fr",
+    "elpais.com","derstandard.at","spiegel.de","tagesschau.de","asiatimes.com",
+    "straitstimes.com","thaiworldview.com","thejakartapost.com","thestandard.com.hk",
+    "sbs.com.au","hawaiinewsnow.com","theglobeandmail.com","irishnews.com","latimes.com",
+    "chicagotribune.com","startribune.com","nydailynews.com","financialtimes.com",
+    "forbes.com","thehill.com","vox.com","buzzfeednews.com","huffpost.com","usatoday.com",
+    "teleSURenglish.net","euronews.com","al-monitor.com",
 
-    # Indian government
-    ".gov.in", "pib.gov.in", "isro.gov.in", "mea.gov.in", "pmindia.gov.in", "presidentofindia.nic.in",
-    "mod.gov.in", "mha.gov.in", "rbi.org.in", "sebi.gov.in",
+    # Indian Government
+    ".gov.in","pib.gov.in","isro.gov.in","pmindia.gov.in","mod.gov.in","mha.gov.in",
+    "rbi.org.in","sebi.gov.in","nic.in","mohfw.gov.in","moef.gov.in","meity.gov.in",
+    "railway.gov.in","dgca.gov.in","drdo.gov.in","indianrailways.gov.in","education.gov.in",
+    "scienceandtech.gov.in","urbanindia.nic.in","financialservices.gov.in",
+    "commerce.gov.in","sportsauthorityofindia.nic.in","agriculture.gov.in","power.gov.in",
+    "parliamentofindia.nic.in","taxindia.gov.in","cbic.gov.in","epfindia.gov.in","defence.gov.in",
 
-    # International govt + orgs
-    ".gov", ".europa.eu", "un.org", "who.int", "nasa.gov", "esa.int",
-    "ecb.europa.eu", "imf.org", "worldbank.org",
+    # International Government & UN/NGO
+    ".gov",".europa.eu","un.org","who.int","nasa.gov","esa.int","imf.org","worldbank.org",
+    "fao.org","wto.org","unicef.org","unhcr.org","redcross.org","cdc.gov","nih.gov","usa.gov",
+    "canada.ca","gov.uk","australia.gov.au","japan.go.jp","europa.eu","consilium.europa.eu",
+    "ec.europa.eu","ecb.europa.eu","unep.org","ilo.org","ohchr.org","unodc.org","unwomen.org",
+    "unfpa.org","unesco.org","wmo.int","ifrc.org","nato.int","oecd.org","europarl.europa.eu",
+    "unido.org","wfp.org"
 ]
 
-def is_trusted(url: str) -> bool:
+def is_trusted(url):
     url = url.lower()
     return any(src in url for src in trusted_sources)
 
 # ==============================
-# Prediction logic with weighted voting
+# DL Ensemble Prediction
 # ==============================
 def get_final_prediction(text, url=""):
     text = clean_text(text)
-
-    # Trusted source override
+    
     if url and is_trusted(url):
         return "REAL"
 
-    # Classical ML
-    vec = vectorizer.transform([text])
-    pa_pred = model_pa.predict(vec)[0]
-    nb_pred = model_nb.predict(vec)[0]
-
-    # DL models
+    # BERT
     bert_res = bert_pipeline(text[:512])[0]['label']
     bert_pred = "REAL" if "REAL" in bert_res.upper() else "FAKE"
 
+    # BART Zero-Shot
+    bart_res = bart_pipeline(text, candidate_labels=["REAL","FAKE"])
+    bart_pred = bart_res['labels'][0]
+
+    # T5
     t5_out = t5_pipeline(f"Classify this news as REAL or FAKE:\n\n{text}", max_length=20)[0]['generated_text'].upper()
-    if "REAL" in t5_out and "FAKE" not in t5_out:
-        t5_pred = "REAL"
-    elif "FAKE" in t5_out:
-        t5_pred = "FAKE"
-    else:
-        t5_pred = "UNSURE"
+    t5_pred = "REAL" if "REAL" in t5_out and "FAKE" not in t5_out else ("FAKE" if "FAKE" in t5_out else "UNSURE")
 
-    # Weighted voting
-    scores = {"REAL": 0, "FAKE": 0}
-    scores["REAL"] += 0.5 if bert_pred == "REAL" else 0
-    scores["FAKE"] += 0.5 if bert_pred == "FAKE" else 0
-    scores["REAL"] += 0.3 if t5_pred == "REAL" else 0
-    scores["FAKE"] += 0.3 if t5_pred == "FAKE" else 0
-    scores["REAL"] += 0.1 if pa_pred == 1 else 0
-    scores["FAKE"] += 0.1 if pa_pred == 0 else 0
-    scores["REAL"] += 0.1 if nb_pred == 1 else 0
-    scores["FAKE"] += 0.1 if nb_pred == 0 else 0
+    # Weighted Voting
+    scores = {"REAL":0, "FAKE":0}
+    for p, w in zip([bert_pred, bart_pred, t5_pred],[0.4,0.3,0.3]):
+        if p=="REAL": scores["REAL"] += w
+        elif p=="FAKE": scores["FAKE"] += w
 
-    if scores["REAL"] > scores["FAKE"]:
-        return "REAL"
-    elif scores["FAKE"] > scores["REAL"]:
-        return "FAKE"
-    else:
-        return "UNSURE"
+    return "REAL" if scores["REAL"] > scores["FAKE"] else ("FAKE" if scores["FAKE"] > scores["REAL"] else "UNSURE")
 
 # ==============================
 # Streamlit UI
 # ==============================
-st.title("📰 Fake News Detection App (Trusted + DL/ML Weighted Ensemble)")
+st.title("📰 Fake News Detection App (DL Ensemble)")
 
-choice = st.radio("Choose Input Type", ["Text", "URL"])
+page_url = st.text_input("Enter news article URL")
 user_input = ""
-page_url = ""
 
-if choice == "Text":
-    user_input = st.text_area("Enter news text/headline")
-else:
-    page_url = st.text_input("Enter news article URL")
-    if page_url:
-        scraped = scrape_url(page_url)
-        if scraped:
-            st.text_area("Extracted Article", scraped, height=200)
-            user_input = scraped
-        else:
-            st.warning("⚠️ Could not scrape the URL.")
+if page_url:
+    scraped = scrape_url(page_url)
+    if scraped:
+        st.text_area("Extracted Article", scraped, height=300)
+        user_input = scraped
+    else:
+        st.warning("⚠️ Could not scrape the URL.")
 
 if st.button("Analyze"):
     if not user_input.strip():
-        st.warning("Please enter some news text or URL.")
+        st.warning("Please enter a valid URL.")
     else:
         final_result = get_final_prediction(user_input, page_url)
-
         st.subheader("Final Verdict:")
-        if final_result == "REAL":
+        if final_result=="REAL":
             st.success("🟢 REAL NEWS")
-        elif final_result == "FAKE":
+        elif final_result=="FAKE":
             st.error("🔴 FAKE NEWS")
         else:
             st.warning("⚠️ UNSURE")
-
         with st.expander("🔎 Debug: Show Extracted Text"):
             st.write(user_input)
