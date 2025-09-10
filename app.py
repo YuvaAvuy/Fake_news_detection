@@ -1,6 +1,7 @@
 import streamlit as st
 import joblib
 import requests
+import re
 from bs4 import BeautifulSoup
 from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 
@@ -28,6 +29,15 @@ bert_pipeline = load_bert()
 t5_pipeline = load_t5()
 
 # ==============================
+# Text Cleaning
+# ==============================
+def clean_text(text):
+    text = re.sub(r"\b\d{1,2}\s*(hours|minutes|ago)\b", "", text)
+    text = re.sub(r"(share|save|click here|more details|read more)", "", text, flags=re.I)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+# ==============================
 # Scraper
 # ==============================
 def scrape_url(url):
@@ -37,7 +47,6 @@ def scrape_url(url):
 
         title = soup.title.string if soup.title else ""
 
-        # Try to grab main article container
         article_div = soup.find("article")
         if not article_div:
             article_div = soup.find("div", {"class": "articlebodycontent"})
@@ -51,7 +60,6 @@ def scrape_url(url):
                 if len(elem.get_text().split()) > 5
             ]
         else:
-            # fallback generic
             chunks = [
                 p.get_text().strip()
                 for p in soup.find_all("p")
@@ -62,7 +70,7 @@ def scrape_url(url):
         if not text:
             text = soup.get_text()
 
-        return (title + "\n\n" + text)[:3000]
+        return clean_text((title + "\n\n" + text)[:3000])
     except Exception:
         return None
 
@@ -95,20 +103,25 @@ def is_trusted(url: str) -> bool:
     return any(src in url for src in trusted_sources)
 
 # ==============================
-# Prediction logic
+# Prediction logic with weighted voting
 # ==============================
 def get_final_prediction(text, url=""):
-    # If URL is from trusted source → mark REAL
+    text = clean_text(text)
+
+    # Trusted source override
     if url and is_trusted(url):
         return "REAL"
 
-    # BERT
-    bert_res = bert_pipeline(text[:512])[0]
-    bert_pred = "REAL" if "REAL" in bert_res['label'].upper() else "FAKE"
+    # Classical ML
+    vec = vectorizer.transform([text])
+    pa_pred = model_pa.predict(vec)[0]
+    nb_pred = model_nb.predict(vec)[0]
 
-    # FLAN-T5
-    prompt = f"Classify this news as REAL or FAKE:\n\n{text}"
-    t5_out = t5_pipeline(prompt, max_length=20)[0]['generated_text'].upper()
+    # DL models
+    bert_res = bert_pipeline(text[:512])[0]['label']
+    bert_pred = "REAL" if "REAL" in bert_res.upper() else "FAKE"
+
+    t5_out = t5_pipeline(f"Classify this news as REAL or FAKE:\n\n{text}", max_length=20)[0]['generated_text'].upper()
     if "REAL" in t5_out and "FAKE" not in t5_out:
         t5_pred = "REAL"
     elif "FAKE" in t5_out:
@@ -116,24 +129,28 @@ def get_final_prediction(text, url=""):
     else:
         t5_pred = "UNSURE"
 
-    # Classical ML
-    vec = vectorizer.transform([text])
-    pa_pred = "REAL" if model_pa.predict(vec)[0] == 1 else "FAKE"
-    nb_pred = "REAL" if model_nb.predict(vec)[0] == 1 else "FAKE"
+    # Weighted voting
+    scores = {"REAL": 0, "FAKE": 0}
+    scores["REAL"] += 0.5 if bert_pred == "REAL" else 0
+    scores["FAKE"] += 0.5 if bert_pred == "FAKE" else 0
+    scores["REAL"] += 0.3 if t5_pred == "REAL" else 0
+    scores["FAKE"] += 0.3 if t5_pred == "FAKE" else 0
+    scores["REAL"] += 0.1 if pa_pred == 1 else 0
+    scores["FAKE"] += 0.1 if pa_pred == 0 else 0
+    scores["REAL"] += 0.1 if nb_pred == 1 else 0
+    scores["FAKE"] += 0.1 if nb_pred == 0 else 0
 
-    votes = [bert_pred, t5_pred, pa_pred, nb_pred]
-    final = max(set(votes), key=votes.count)
-
-    # Tie-breaker: trust BERT
-    if votes.count("REAL") == votes.count("FAKE"):
-        final = bert_pred
-
-    return final
+    if scores["REAL"] > scores["FAKE"]:
+        return "REAL"
+    elif scores["FAKE"] > scores["REAL"]:
+        return "FAKE"
+    else:
+        return "UNSURE"
 
 # ==============================
 # Streamlit UI
 # ==============================
-st.title("📰 Fake News Detection App (Trusted + DL/ML Ensemble)")
+st.title("📰 Fake News Detection App (Trusted + DL/ML Weighted Ensemble)")
 
 choice = st.radio("Choose Input Type", ["Text", "URL"])
 user_input = ""
@@ -160,8 +177,10 @@ if st.button("Analyze"):
         st.subheader("Final Verdict:")
         if final_result == "REAL":
             st.success("🟢 REAL NEWS")
-        else:
+        elif final_result == "FAKE":
             st.error("🔴 FAKE NEWS")
+        else:
+            st.warning("⚠️ UNSURE")
 
         with st.expander("🔎 Debug: Show Extracted Text"):
             st.write(user_input)
