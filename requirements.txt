@@ -5,5 +5,5 @@ transformers
 torch
 newspaper3k
 beautifulsoup4
-lxml
+lxml[html_clean]
 requests
