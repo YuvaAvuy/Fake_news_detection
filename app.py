@@ -12,7 +12,7 @@ model_nb = joblib.load("model_multinb.pkl")
 vectorizer = joblib.load("tfidf_vectorizer.pkl")
 
 # -------------------------------
-# Load Hugging Face models (cached for speed)
+# Load Hugging Face models
 # -------------------------------
 @st.cache_resource
 def load_bert():
@@ -37,27 +37,28 @@ def scrape_url(url):
 
         title = soup.title.string if soup.title else ""
 
-        # Extract only meaningful <p> content
-        paragraphs = []
-        for p in soup.find_all("p"):
-            text = p.get_text().strip()
-            if len(text.split()) > 5:  # ignore short junk like dates/menus
-                paragraphs.append(text)
+        # Try common article containers
+        article_div = soup.find("div", {"class": "articlebodycontent"})
+        if not article_div:
+            article_div = soup.find("div", {"id": "content-body"})
+
+        if article_div:
+            paragraphs = [p.get_text().strip() for p in article_div.find_all("p") if len(p.get_text().split()) > 5]
+        else:
+            paragraphs = [p.get_text().strip() for p in soup.find_all("p") if len(p.get_text().split()) > 5]
 
         text = " ".join(paragraphs)
-
-        # Fallback if no good paragraphs found
         if not text:
             text = soup.get_text()
 
-        return (title + "\n\n" + text)[:3000]  # limit to 3000 chars
+        return (title + "\n\n" + text)[:3000]  # limit size
     except Exception:
         return None
 
 # -------------------------------
 # Prediction function
 # -------------------------------
-def get_final_prediction(text):
+def get_final_prediction(text, url=""):
     # BERT Prediction
     bert_res = bert_pipeline(text[:512])[0]
     bert_pred = "REAL" if "REAL" in bert_res['label'].upper() else "FAKE"
@@ -85,6 +86,12 @@ def get_final_prediction(text):
     if votes.count("REAL") == votes.count("FAKE"):
         final = bert_pred
 
+    # ✅ Trusted source override
+    trusted_sources = ["thehindu.com", "isro.gov.in", "bbc.com", "reuters.com", "ndtv.com"]
+    if any(src in url for src in trusted_sources) and final == "FAKE":
+        if votes.count("FAKE") < 3:  # not unanimous FAKE
+            final = "REAL"
+
     return final
 
 # -------------------------------
@@ -95,12 +102,14 @@ st.title("📰 Fake News Detection App (DL + ML Combined)")
 choice = st.radio("Choose Input Type", ["Text", "URL"])
 
 user_input = ""
+page_url = ""
+
 if choice == "Text":
     user_input = st.text_area("Enter news text/headline")
 else:
-    url = st.text_input("Enter news article URL")
-    if url:
-        scraped = scrape_url(url)
+    page_url = st.text_input("Enter news article URL")
+    if page_url:
+        scraped = scrape_url(page_url)
         if scraped:
             st.text_area("Extracted Article", scraped, height=200)
             user_input = scraped
@@ -111,7 +120,7 @@ if st.button("Analyze"):
     if not user_input.strip():
         st.warning("Please enter some news text or URL.")
     else:
-        final_result = get_final_prediction(user_input)
+        final_result = get_final_prediction(user_input, page_url)
 
         st.subheader("Final Verdict:")
         if final_result == "REAL":
@@ -119,6 +128,6 @@ if st.button("Analyze"):
         else:
             st.error("🔴 FAKE NEWS")
 
-        # Debug: show what models saw
+        # Debug
         with st.expander("🔎 Debug: Show Extracted Text"):
             st.write(user_input)
