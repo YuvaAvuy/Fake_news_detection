@@ -1,9 +1,10 @@
 streamlit
-joblib
-scikit-learn
 transformers
 torch
-newspaper3k
+torchvision
+torchaudio
 beautifulsoup4
-lxml[html_clean]
 requests
+lxml
+regex
+sentencepiece
