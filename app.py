@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 
 # ==============================
-# Model Loading Functions (Lazy Loaded)
+# Model Loading Functions
 # ==============================
 @st.cache_resource
 def load_bert_model():
@@ -14,8 +14,8 @@ def load_bert_model():
     return pipeline("text-classification", model=model, tokenizer=tokenizer)
 
 @st.cache_resource
-def load_bart_model():
-    return pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+def load_roberta_model():
+    return pipeline("zero-shot-classification", model="roberta-large-mnli")
 
 # ==============================
 # Text Cleaning
@@ -64,8 +64,7 @@ trusted_sources = [
     "thehansindia.com","punemirror.com","chennailivenews.in","kashmirlife.net","jagran.com",
     "navbharattimes.indiatimes.com","amarujala.com","dainikbhaskar.com","lokmat.com",
     "maharashtratimes.com","eenadu.net","sakal.com","prahaar.in","varthabharati.in",
-    "samacharjagat.com","dailyhunt.in","uttarpradesh.org",
-
+    "samacharjagat.com","dailyhunt.in","uttarpradesh.org","theweek.in","business-standard.com",
     # International News
     "bbc.com","cnn.com","reuters.com","apnews.com","aljazeera.com","theguardian.com",
     "nytimes.com","washingtonpost.com","bloomberg.com","dw.com","foxnews.com","cbsnews.com",
@@ -77,8 +76,9 @@ trusted_sources = [
     "sbs.com.au","hawaiinewsnow.com","theglobeandmail.com","irishnews.com","latimes.com",
     "chicagotribune.com","startribune.com","nydailynews.com","financialtimes.com",
     "forbes.com","thehill.com","vox.com","buzzfeednews.com","huffpost.com","usatoday.com",
-    "teleSURenglish.net","euronews.com","al-monitor.com",
-
+    "teleSURenglish.net","euronews.com","al-monitor.com","news.com.au","cnbc.com",
+    "barrons.com","time.com","foreignpolicy.com","economist.com","foreignaffairs.com",
+    "dailytelegraph.com.au","smh.com.au","thesun.co.uk","dailymail.co.uk",
     # Indian Government
     ".gov.in","pib.gov.in","isro.gov.in","pmindia.gov.in","mod.gov.in","mha.gov.in",
     "rbi.org.in","sebi.gov.in","nic.in","mohfw.gov.in","moef.gov.in","meity.gov.in",
@@ -86,12 +86,11 @@ trusted_sources = [
     "scienceandtech.gov.in","urbanindia.nic.in","financialservices.gov.in",
     "commerce.gov.in","sportsauthorityofindia.nic.in","agriculture.gov.in","power.gov.in",
     "parliamentofindia.nic.in","taxindia.gov.in","cbic.gov.in","epfindia.gov.in","defence.gov.in",
-
     # International Government & UN/NGO
     ".gov",".europa.eu","un.org","who.int","nasa.gov","esa.int","imf.org","worldbank.org",
     "fao.org","wto.org","unicef.org","unhcr.org","redcross.org","cdc.gov","nih.gov","usa.gov",
-    "canada.ca","gov.uk","australia.gov.au","japan.go.jp","europa.eu","consilium.europa.eu",
-    "ec.europa.eu","ecb.europa.eu","unep.org","ilo.org","ohchr.org","unodc.org","unwomen.org",
+    "canada.ca","gov.uk","australia.gov.au","japan.go.jp","ec.europa.eu","consilium.europa.eu",
+    "ecb.europa.eu","unep.org","ilo.org","ohchr.org","unodc.org","unwomen.org",
     "unfpa.org","unesco.org","wmo.int","ifrc.org","nato.int","oecd.org","europarl.europa.eu",
     "unido.org","wfp.org"
 ]
@@ -103,23 +102,27 @@ def is_trusted(url):
 # ==============================
 # DL Ensemble Prediction
 # ==============================
-def get_final_prediction(text, url=""):
+def predict_text_ensemble(text, url=""):
     text = clean_text(text)
-    
+
     if url and is_trusted(url):
         return "REAL"
 
-    # BERT
+    # Load models
+    bert_pipeline = load_bert_model()
+    roberta_pipeline = load_roberta_model()
+
+    # BERT prediction
     bert_res = bert_pipeline(text[:512])[0]['label']
     bert_pred = "REAL" if "REAL" in bert_res.upper() else "FAKE"
 
-    # BART Zero-Shot
-    bart_res = bart_pipeline(text, candidate_labels=["REAL","FAKE"])
-    bart_pred = bart_res['labels'][0]
+    # RoBERTa Zero-Shot prediction
+    roberta_res = roberta_pipeline(text, candidate_labels=["REAL","FAKE"])
+    roberta_pred = roberta_res['labels'][0]
 
     # Weighted Voting
     scores = {"REAL":0, "FAKE":0}
-    for p, w in zip([bert_pred, bart_pred],[0.5,0.5]):
+    for p, w in zip([bert_pred, roberta_pred],[0.5,0.5]):
         if p=="REAL": scores["REAL"] += w
         elif p=="FAKE": scores["FAKE"] += w
 
@@ -130,27 +133,29 @@ def get_final_prediction(text, url=""):
 # ==============================
 st.title("📰 Fake News Detection App (DL Ensemble)")
 
-page_url = st.text_input("Enter news article URL")
-user_input = ""
+input_type = st.radio("Choose Input Type", ["Text", "URL"])
 
-if page_url:
-    scraped = scrape_url(page_url)
-    if scraped:
-        st.text_area("Extracted Article", scraped, height=300)
-        user_input = scraped
-    else:
-        st.warning("⚠️ Could not scrape the URL.")
+user_input = ""
+page_url = ""
+
+if input_type == "Text":
+    user_input = st.text_area("Enter news text here", height=200)
+else:
+    page_url = st.text_input("Enter news article URL")
+    if page_url:
+        scraped = scrape_url(page_url)
+        if scraped:
+            st.text_area("Extracted Article", scraped, height=300)
+            user_input = scraped
+        else:
+            st.warning("⚠️ Could not scrape the URL.")
 
 if st.button("Analyze"):
     if not user_input.strip():
-        st.warning("Please enter a valid URL.")
+        st.warning("Please enter valid text or URL.")
     else:
         try:
-            # Lazy-load models to prevent memory crash
-            bert_pipeline = load_bert_model()
-            bart_pipeline = load_bart_model()
-
-            final_result = get_final_prediction(user_input, page_url)
+            final_result = predict_text_ensemble(user_input, page_url)
             st.subheader("Final Verdict:")
             if final_result=="REAL":
                 st.success("🟢 REAL NEWS")
