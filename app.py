@@ -17,7 +17,6 @@ def load_bert_model():
 def load_roberta_model():
     return pipeline("zero-shot-classification", model="roberta-large-mnli")
 
-# Load models once
 bert_pipeline = load_bert_model()
 roberta_pipeline = load_roberta_model()
 
@@ -51,7 +50,7 @@ def scrape_url(url):
         return None
 
 # ==============================
-# Trusted Sources (200+)
+# Trusted Sources 200+
 # ==============================
 trusted_sources = [
     # Indian News
