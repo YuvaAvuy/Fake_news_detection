@@ -37,28 +37,57 @@ def scrape_url(url):
 
         title = soup.title.string if soup.title else ""
 
-        # Try common article containers
-        article_div = soup.find("div", {"class": "articlebodycontent"})
-        if not article_div:
-            article_div = soup.find("div", {"id": "content-body"})
+        # Try main article container
+        article_div = soup.find("div", {"class": "articlebodycontent"}) or soup.find("div", {"id": "content-body"})
 
         if article_div:
-            paragraphs = [p.get_text().strip() for p in article_div.find_all("p") if len(p.get_text().split()) > 5]
+            chunks = [
+                p.get_text().strip()
+                for p in article_div.find_all(["p", "li", "div"])
+                if len(p.get_text().split()) > 5
+            ]
         else:
-            paragraphs = [p.get_text().strip() for p in soup.find_all("p") if len(p.get_text().split()) > 5]
+            chunks = [
+                p.get_text().strip()
+                for p in soup.find_all(["p", "li"])
+                if len(p.get_text().split()) > 5
+            ]
 
-        text = " ".join(paragraphs)
+        text = " ".join(chunks)
         if not text:
             text = soup.get_text()
 
-        return (title + "\n\n" + text)[:3000]  # limit size
+        return (title + "\n\n" + text)[:3000]  # limit to 3000 chars
     except Exception:
         return None
+
+# -------------------------------
+# Trusted Sources List
+# -------------------------------
+trusted_sources = [
+    # Indian News
+    "thehindu.com", "ndtv.com", "timesofindia.com", "indiatoday.in", "hindustantimes.com",
+    "indianexpress.com", "livemint.com", "business-standard.com", "deccanherald.com", "newindianexpress.com",
+    "thewire.in", "scroll.in", "theprint.in", "news18.com", "firstpost.com", "onetindia.com",
+    # Global News
+    "bbc.com", "reuters.com", "apnews.com", "cnn.com", "nytimes.com", "washingtonpost.com",
+    "aljazeera.com", "theguardian.com", "economist.com", "bloomberg.com", "dw.com",
+    # Government & Official
+    ".gov", ".gov.in", "pib.gov.in", "isro.gov.in", "mea.gov.in", "pmindia.gov.in",
+]
+
+def is_trusted(url: str) -> bool:
+    url = url.lower()
+    return any(src in url for src in trusted_sources)
 
 # -------------------------------
 # Prediction function
 # -------------------------------
 def get_final_prediction(text, url=""):
+    # If source is trusted → auto REAL
+    if url and is_trusted(url):
+        return "REAL"
+
     # BERT Prediction
     bert_res = bert_pipeline(text[:512])[0]
     bert_pred = "REAL" if "REAL" in bert_res['label'].upper() else "FAKE"
@@ -86,18 +115,12 @@ def get_final_prediction(text, url=""):
     if votes.count("REAL") == votes.count("FAKE"):
         final = bert_pred
 
-    # ✅ Trusted source override
-    trusted_sources = ["thehindu.com", "isro.gov.in", "bbc.com", "reuters.com", "ndtv.com"]
-    if any(src in url for src in trusted_sources) and final == "FAKE":
-        if votes.count("FAKE") < 3:  # not unanimous FAKE
-            final = "REAL"
-
     return final
 
 # -------------------------------
 # Streamlit UI
 # -------------------------------
-st.title("📰 Fake News Detection App (DL + ML Combined)")
+st.title("📰 Fake News Detection App (DL + ML + Trusted Sources)")
 
 choice = st.radio("Choose Input Type", ["Text", "URL"])
 
