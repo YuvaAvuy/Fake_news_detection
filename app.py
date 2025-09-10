@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 
 # ==============================
-# Load DL Models
+# Model Loading Functions (Lazy Loaded)
 # ==============================
 @st.cache_resource
 def load_bert_model():
@@ -16,14 +16,6 @@ def load_bert_model():
 @st.cache_resource
 def load_bart_model():
     return pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
-
-@st.cache_resource
-def load_t5_model():
-    return pipeline("text2text-generation", model="google/flan-t5-large")
-
-bert_pipeline = load_bert_model()
-bart_pipeline = load_bart_model()
-t5_pipeline = load_t5_model()
 
 # ==============================
 # Text Cleaning
@@ -55,10 +47,10 @@ def scrape_url(url):
         return None
 
 # ==============================
-# Trusted Sources 200+
+# Trusted Sources (200+)
 # ==============================
 trusted_sources = [
-    # Indian News (50+)
+    # Indian News
     "thehindu.com","timesofindia.com","hindustantimes.com","ndtv.com","indiatoday.in",
     "indianexpress.com","livemint.com","business-standard.com","deccanherald.com",
     "telegraphindia.com","mid-day.com","dnaindia.com","scroll.in","firstpost.com",
@@ -74,7 +66,7 @@ trusted_sources = [
     "maharashtratimes.com","eenadu.net","sakal.com","prahaar.in","varthabharati.in",
     "samacharjagat.com","dailyhunt.in","uttarpradesh.org",
 
-    # International News (50+)
+    # International News
     "bbc.com","cnn.com","reuters.com","apnews.com","aljazeera.com","theguardian.com",
     "nytimes.com","washingtonpost.com","bloomberg.com","dw.com","foxnews.com","cbsnews.com",
     "nbcnews.com","abcnews.go.com","sky.com","france24.com","rt.com","sputniknews.com",
@@ -125,13 +117,9 @@ def get_final_prediction(text, url=""):
     bart_res = bart_pipeline(text, candidate_labels=["REAL","FAKE"])
     bart_pred = bart_res['labels'][0]
 
-    # T5
-    t5_out = t5_pipeline(f"Classify this news as REAL or FAKE:\n\n{text}", max_length=20)[0]['generated_text'].upper()
-    t5_pred = "REAL" if "REAL" in t5_out and "FAKE" not in t5_out else ("FAKE" if "FAKE" in t5_out else "UNSURE")
-
     # Weighted Voting
     scores = {"REAL":0, "FAKE":0}
-    for p, w in zip([bert_pred, bart_pred, t5_pred],[0.4,0.3,0.3]):
+    for p, w in zip([bert_pred, bart_pred],[0.5,0.5]):
         if p=="REAL": scores["REAL"] += w
         elif p=="FAKE": scores["FAKE"] += w
 
@@ -157,13 +145,21 @@ if st.button("Analyze"):
     if not user_input.strip():
         st.warning("Please enter a valid URL.")
     else:
-        final_result = get_final_prediction(user_input, page_url)
-        st.subheader("Final Verdict:")
-        if final_result=="REAL":
-            st.success("🟢 REAL NEWS")
-        elif final_result=="FAKE":
-            st.error("🔴 FAKE NEWS")
-        else:
-            st.warning("⚠️ UNSURE")
-        with st.expander("🔎 Debug: Show Extracted Text"):
-            st.write(user_input)
+        try:
+            # Lazy-load models to prevent memory crash
+            bert_pipeline = load_bert_model()
+            bart_pipeline = load_bart_model()
+
+            final_result = get_final_prediction(user_input, page_url)
+            st.subheader("Final Verdict:")
+            if final_result=="REAL":
+                st.success("🟢 REAL NEWS")
+            elif final_result=="FAKE":
+                st.error("🔴 FAKE NEWS")
+            else:
+                st.warning("⚠️ UNSURE")
+
+            with st.expander("🔎 Debug: Show Extracted Text"):
+                st.write(user_input)
+        except Exception as e:
+            st.error(f"⚠️ Error during analysis: {e}")
