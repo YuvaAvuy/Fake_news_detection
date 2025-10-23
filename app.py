@@ -3,62 +3,6 @@ import requests
 import re
 from bs4 import BeautifulSoup
 from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
-API_KEY = "AIzaSyDlnSBUgoN2m94xmaFY2WIT-GjYC8MOUUg"
-API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={API_KEY}"
-
-def query_api(text):
-    headers = {"Content-Type": "application/json"}
-    data = {
-        "contents": [
-            {"parts": [{"text": f"""Classify the following news as REAL or FAKE. 
-Answer strictly with either 'REAL' or 'FAKE' on the first line. 
-Then on the second line, give a short explanation (2–3 sentences) why you classified it that way, 
-based on credibility, language patterns, or content.
-
-Text:
-{text}"""}]}
-        ]
-    }
-    try:
-        resp = requests.post(API_URL, headers=headers, json=data, timeout=30)
-        resp.raise_for_status()
-        result = resp.json()
-        raw_text = result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
-
-        # Split classification and explanation
-        lines = raw_text.split("\n", 1)
-        classification = lines[0].strip().upper() if lines else "UNSURE"
-        explanation = lines[1].strip() if len(lines) > 1 else "No explanation provided."
-
-        if "REAL" in classification:
-            return "REAL", explanation
-        elif "FAKE" in classification:
-            return "FAKE", explanation
-        else:
-            return "UNSURE", explanation
-    except Exception as e:
-        return f"ERROR: {e}", "Explanation not available due to error."
-
-def get_true_info(fake_text):
-    headers = {"Content-Type": "application/json"}
-    data = {
-        "contents": [
-            {"parts": [{"text": f"""The following statement is FAKE. 
-Please give the correct or factual version of it in one or two sentences.
-
-Fake statement:
-{fake_text}"""}]}
-        ]
-    }
-    try:
-        resp = requests.post(API_URL, headers=headers, json=data, timeout=30)
-        resp.raise_for_status()
-        result = resp.json()
-        correction = result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
-        return correction
-    except Exception:
-        return "No correction available."
-
 
 # ==============================
 # Load DL Models
@@ -216,3 +160,61 @@ if st.button("Analyze"):
                 st.write(user_input)
         except Exception as e:
             st.error(f"⚠️ Error during analysis: {e}")
+
+# Explanation section
+API_KEY = "AIzaSyDlnSBUgoN2m94xmaFY2WIT-GjYC8MOUUg"
+API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={API_KEY}"
+
+def query_api(text):
+    headers = {"Content-Type": "application/json"}
+    data = {
+        "contents": [
+            {"parts": [{"text": f"""Classify the following news as REAL or FAKE. 
+Answer strictly with either 'REAL' or 'FAKE' on the first line. 
+Then on the second line, give a short explanation (2–3 sentences) why you classified it that way, 
+based on credibility, language patterns, or content.
+
+Text:
+{text}"""}]}
+        ]
+    }
+    try:
+        resp = requests.post(API_URL, headers=headers, json=data, timeout=30)
+        resp.raise_for_status()
+        result = resp.json()
+        raw_text = result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
+
+        # Split classification and explanation
+        lines = raw_text.split("\n", 1)
+        classification = lines[0].strip().upper() if lines else "UNSURE"
+        explanation = lines[1].strip() if len(lines) > 1 else "No explanation provided."
+
+        if "REAL" in classification:
+            return "REAL", explanation
+        elif "FAKE" in classification:
+            return "FAKE", explanation
+        else:
+            return "UNSURE", explanation
+    except Exception as e:
+        return f"ERROR: {e}", "Explanation not available due to error."
+
+def get_true_info(fake_text):
+    headers = {"Content-Type": "application/json"}
+    data = {
+        "contents": [
+            {"parts": [{"text": f"""The following statement is FAKE. 
+Please give the correct or factual version of it in one or two sentences.
+
+Fake statement:
+{fake_text}"""}]}
+        ]
+    }
+    try:
+        resp = requests.post(API_URL, headers=headers, json=data, timeout=30)
+        resp.raise_for_status()
+        result = resp.json()
+        correction = result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
+        return correction
+    except Exception:
+        return "No correction available."
+
