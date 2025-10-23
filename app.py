@@ -24,10 +24,38 @@ roberta_pipeline = load_roberta_model()
 # Text Cleaning
 # ==============================
 def clean_text(text):
-    text = re.sub(r"\b\d{1,2}\s*(hours|minutes|ago)\b", "", text)
-    text = re.sub(r"(share|save|click here|more details|read more)", "", text, flags=re.I)
+    # Remove timestamps like "10 hours ago"
+    text = re.sub(r"\b\d{1,2}\s*(hours|minutes|days|weeks|ago)\b", "", text)
+
+    # Remove promotional/CTA phrases
+    text = re.sub(r"(share|save|click here|more details|read more|subscribe|follow us)", "", text, flags=re.I)
+
+    # Remove URLs and hyperlinks
+    text = re.sub(r"http\S+|www\.\S+", "", text)
+
+    # Remove email addresses
+    text = re.sub(r"\S+@\S+\.\S+", "", text)
+
+    # Remove emojis and non-text characters
+    text = re.sub(r"[^\w\s,.!?;:()'\"]+", "", text)
+
+    # Remove excessive punctuation (like "!!!" or "??")
+    text = re.sub(r"([!?.,])\1+", r"\1", text)
+
+    # Remove numbers that don’t add meaning (e.g., “12345”)
+    text = re.sub(r"\b\d{5,}\b", "", text)
+
+    # Remove extra whitespace
     text = re.sub(r"\s+", " ", text)
-    return text.strip()
+
+    # Remove leading/trailing spaces
+    text = text.strip()
+
+    # Optional: convert to lowercase for uniformity
+    text = text.lower()
+
+    return text
+
 
 # ==============================
 # Web Scraping
